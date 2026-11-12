@@ -1,0 +1,78 @@
+# 指标语义层定义（草稿）
+#
+# 目标：所有接口、报表、导出都从这里取数。
+# 现状：只用了 2 个指标，其余仍在 meterhouse/queries.py 里手写。
+
+version: 1
+
+metrics:
+  - name: active_suppliers
+    label: 活跃供应商数
+    description: >
+      统计窗口内有活跃快照的供应商数量。
+      口径：按 supplier_id 去重。注意 stat_time 是 UTC，
+      若按日期下钻，必须先转换到业务时区。
+    kind: distinct
+    source: supplier_stats
+    expr: count(DISTINCT supplier_id)
+    filters:
+      - "is_active"
+    dimensions: [region, category]
+    time_column: stat_time
+    # 去重计数在时间维度上不可加：1 月 + 2 月 != 整个季度
+    additivity: non_additive
+
+  - name: gmv_cents
+    label: 成交金额（分）
+    description: >
+      已支付订单金额合计。必须先按 order_id 去重，因为上游存在重复推送。
+    kind: simple
+    source: order_facts
+    expr: "coalesce(sum(amount_cents), 0)"
+    filters:
+      - "status = 'paid'"
+    dimensions: [region]
+    time_column: created_at
+    additivity: additive
+
+  - name: orders_total
+    label: 订单数
+    description: 去重后的订单数。注意与 gmv_cents 的去重口径必须一致。
+    kind: distinct
+    source: order_facts
+    expr: count(DISTINCT order_id)
+    dimensions: [region, status]
+    time_column: created_at
+    additivity: non_additive
+
+  - name: paid_rate
+    label: 支付成功率
+    description: >
+      已支付订单数 / 订单总数。
+      比值指标不能直接对分子分母的结果再做平均。
+    kind: ratio
+    source: order_facts
+    expr: "1.0 * count(DISTINCT CASE WHEN status='paid' THEN order_id END) / count(DISTINCT order_id)"
+    dimensions: [region]
+    time_column: created_at
+    additivity: non_additive
+
+  - name: avg_order_cents
+    label: 客单价（分）
+    description: 已支付订单的平均金额。分母必须去重。
+    kind: ratio
+    source: order_facts
+    expr: "coalesce(sum(amount_cents) FILTER (WHERE status='paid'), 0) / nullif(count(DISTINCT CASE WHEN status='paid' THEN order_id END), 0)"
+    dimensions: [region]
+    time_column: created_at
+    additivity: non_additive
+
+  - name: suppliers_total
+    label: 供应商总数
+    description: 有快照记录的供应商总数（与活跃数不同：不要求 is_active）。
+    kind: distinct
+    source: supplier_stats
+    expr: count(DISTINCT supplier_id)
+    dimensions: [region, category]
+    time_column: stat_time
+    additivity: non_additive
