@@ -10,7 +10,7 @@
     * 同一供应商一天内可能有多条快照（每小时一条）；
     * order_facts 存在少量重复 order_id（上游重推）。
 
-这三件事分别对应三份口径不一致的"活跃供应商数"SQL。
+数据形态如下。
 """
 
 from __future__ import annotations

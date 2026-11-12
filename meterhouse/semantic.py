@@ -3,7 +3,7 @@
 状态：**未完成**。目前只有 YAML 加载与最简单的 SQL 拼装，
 不支持维度下钻、时间粒度、同环比，也不能表达"去重后求平均"这类指标。
 
-这是题目要补的部分。设计意图见 docs/design.md。
+当前只覆盖了部分指标与最简单的编译路径。
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ class Metric:
     # 时间列。语义层需要知道按哪个列做时间过滤。
     time_column: str | None = None
     # 可加性：additive | semi_additive | non_additive
-    # 上卷时的行为由它决定（见 docs/design.md「可加性」）
+    # 决定上卷时该指标能否直接相加
     additivity: str = "additive"
 
     @classmethod
@@ -90,7 +90,7 @@ class MetricStore:
     def compile_grouped(self, name: str, dimensions: list[str]) -> str:
         """按维度分组。维度必须已在指标定义里声明。
 
-        未实现：粒度的合法性校验、维度上卷后的可加性处理。
+        当前只做了维度白名单校验。
         """
         m = self.get(name)
         bad = [d for d in dimensions if d not in m.dimensions]

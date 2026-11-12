@@ -64,7 +64,7 @@ def cmd_verify(args) -> int:
     spread = (max(vals) - min(vals)) / max(vals)
     print(json.dumps({"ground_truth": gt, "values": {"A": a, "B": b, "C": c}, "spread": spread}, ensure_ascii=False, indent=2))
     if spread > 0.01:
-        print(f"\n口径不一致：极差 {spread:.1%}（阈值 1%）", file=sys.stderr)
+        print(f"\n各口径极差 {spread:.1%}（阈值 1%）", file=sys.stderr)
         return 1
     print("\n口径一致")
     return 0
