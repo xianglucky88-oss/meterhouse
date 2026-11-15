@@ -18,9 +18,22 @@ jobs:
           pip install -r requirements.txt
       - name: pytest
         run: python -m pytest -q
-      - name: seed + parity
+      - name: seed + parity (legacy demo path)
         run: |
           python -m meterhouse seed
           python -m meterhouse parity
-      - name: verify (expected to fail until metrics are unified)
-        run: python scripts/verify_metrics.py || true
+      - name: 指标语义回归（对照已审批基准）
+        # 基准变更必须走 approve 流程；这里只消费已审批基准，不写盘。
+        run: python -m meterhouse.regression run --jobs 4 --json --output regression-report.json
+      - name: 基准漂移检查
+        # 定义/夹具/场景任何变化都必须重新审批，不能被“更新期望值”掩盖。
+        run: python scripts/check_baseline_drift.py > baseline-diff.json
+      - name: 上传回归报告
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: metric-regression-report
+          path: |
+            regression-report.json
+            baseline-diff.json
+          if-no-files-found: ignore

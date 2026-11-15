@@ -1,0 +1,100 @@
+# 回归夹具。
+#
+# 原则：显式行数据优先，逐行可审查；生成器只用于大基数场景，且参数+种子固定。
+# 这里的时间均为 UTC；本地业务日 = UTC + 8h。
+#
+# 每个数据集都会计算 dataset hash 并写入基准，数据一变即 reference_drift。
+
+datasets:
+  - name: orders_core
+    description: >
+      小型核心夹具：时区边界（15:59 / 16:00 UTC）、重复推送（不同金额）、
+      空 category、退款订单、范围外订单。
+    supplier_stats:
+      - {supplier_id: SUP-0001, stat_time: "2026-10-01T15:59:00Z", is_active: true,  region: 华东, category: 电子元器件}
+      - {supplier_id: SUP-0001, stat_time: "2026-10-01T16:00:00Z", is_active: true,  region: 华东, category: 电子元器件}
+      - {supplier_id: SUP-0001, stat_time: "2026-10-01T20:00:00Z", is_active: true,  region: 华东, category: 电子元器件}
+      - {supplier_id: SUP-0002, stat_time: "2026-10-01T03:00:00Z", is_active: true,  region: 华南, category: 包装材料}
+      - {supplier_id: SUP-0003, stat_time: "2026-10-01T05:00:00Z", is_active: false, region: 华北, category: 物流服务}
+      - {supplier_id: SUP-0003, stat_time: "2026-10-02T05:00:00Z", is_active: true,  region: 华北, category: 物流服务}
+      - {supplier_id: SUP-0004, stat_time: "2026-10-01T07:00:00Z", is_active: false, region: 西南, category: 办公用品}
+      - {supplier_id: SUP-0005, stat_time: "2026-09-30T10:00:00Z", is_active: true,  region: 华东, category: 包装材料}
+      - {supplier_id: SUP-0006, stat_time: "2026-10-01T23:00:00Z", is_active: true,  region: 华东, category: 包装材料}
+      - {supplier_id: SUP-0007, stat_time: "2026-10-02T02:00:00Z", is_active: true,  region: 华南, category: 电子元器件}
+    order_facts:
+      - {order_id: ORD-000001, supplier_id: SUP-0001, created_at: "2026-10-01T15:59:00Z", amount_cents: 1000, status: paid,     region: 华东, category: 电子元器件, ingest_seq: 1}
+      - {order_id: ORD-000002, supplier_id: SUP-0002, created_at: "2026-10-01T16:00:00Z", amount_cents: 2000, status: paid,     region: 华南, category: null,       ingest_seq: 2}
+      - {order_id: ORD-000003, supplier_id: SUP-0001, created_at: "2026-10-01T12:00:00Z", amount_cents: 3000, status: refunded, region: 华东, category: 包装材料, ingest_seq: 3}
+      - {order_id: ORD-000004, supplier_id: SUP-0003, created_at: "2026-10-02T08:00:00Z", amount_cents: 500,  status: paid,     region: 华北, category: 物流服务, ingest_seq: 4}
+      - {order_id: ORD-000004, supplier_id: SUP-0003, created_at: "2026-10-02T08:00:00Z", amount_cents: 700,  status: paid,     region: 华北, category: 物流服务, ingest_seq: 5}
+      - {order_id: ORD-000005, supplier_id: SUP-0005, created_at: "2026-09-30T23:00:00Z", amount_cents: 900,  status: paid,     region: 西南, category: 办公用品, ingest_seq: 6}
+      - {order_id: ORD-000006, supplier_id: SUP-0002, created_at: "2026-10-01T10:00:00Z", amount_cents: 400,  status: paid,     region: 华南, category: 包装材料, ingest_seq: 7}
+      - {order_id: ORD-000007, supplier_id: SUP-0007, created_at: "2026-10-02T10:00:00Z", amount_cents: 600,  status: paid,     region: 华南, category: null,       ingest_seq: 8}
+      - {order_id: ORD-000008, supplier_id: SUP-0001, created_at: "2026-10-03T01:00:00Z", amount_cents: 800,  status: paid,     region: 华东, category: 电子元器件, ingest_seq: 9}
+      - {order_id: ORD-000009, supplier_id: SUP-0003, created_at: "2026-10-02T11:00:00Z", amount_cents: 1100, status: paid,     region: 华北, category: 物流服务, ingest_seq: 10}
+      - {order_id: ORD-000009, supplier_id: SUP-0003, created_at: "2026-10-02T11:00:00Z", amount_cents: 1300, status: paid,     region: 华北, category: 物流服务, ingest_seq: 11}
+      - {order_id: ORD-000010, supplier_id: SUP-0006, created_at: "2026-10-01T23:30:00Z", amount_cents: 1500, status: paid,     region: 华东, category: 包装材料, ingest_seq: 12}
+
+  - name: orders_empty
+    description: >
+      只有退款订单、没有供应商快照：用于验证 gmv=0、paid_rate=null、
+      avg_order=null 的空值语义，而不是让聚合返回 NULL 冒充 0。
+    supplier_stats: []
+    order_facts:
+      - {order_id: ORD-E001, supplier_id: SUP-9001, created_at: "2026-10-01T04:00:00Z", amount_cents: 100, status: refunded, region: 华东, category: 电子元器件, ingest_seq: 1}
+      - {order_id: ORD-E002, supplier_id: SUP-9002, created_at: "2026-10-02T04:00:00Z", amount_cents: 200, status: refunded, region: 华南, category: 包装材料, ingest_seq: 2}
+
+  - name: ratio_skew
+    description: >
+      各区域支付率差异极大，且分母规模不同：分组比率的算术平均与按分子分母
+      重算的结果显著不同，用于验证“比率必须重算”。
+    supplier_stats:
+      - {supplier_id: SUP-1001, stat_time: "2026-10-01T02:00:00Z", is_active: true, region: 华东, category: 电子元器件}
+      - {supplier_id: SUP-1002, stat_time: "2026-10-01T02:00:00Z", is_active: true, region: 华南, category: 包装材料}
+    order_facts:
+      - {order_id: ORD-R001, supplier_id: SUP-1001, created_at: "2026-10-01T02:00:00Z", amount_cents: 100, status: paid,     region: 华东, category: 电子元器件, ingest_seq: 1}
+      - {order_id: ORD-R002, supplier_id: SUP-1001, created_at: "2026-10-01T03:00:00Z", amount_cents: 100, status: paid,     region: 华东, category: 电子元器件, ingest_seq: 2}
+      - {order_id: ORD-R003, supplier_id: SUP-1001, created_at: "2026-10-01T04:00:00Z", amount_cents: 100, status: paid,     region: 华东, category: 电子元器件, ingest_seq: 3}
+      - {order_id: ORD-R004, supplier_id: SUP-1001, created_at: "2026-10-01T05:00:00Z", amount_cents: 100, status: refunded, region: 华东, category: 电子元器件, ingest_seq: 4}
+      - {order_id: ORD-R005, supplier_id: SUP-1001, created_at: "2026-10-01T06:00:00Z", amount_cents: 100, status: refunded, region: 华东, category: 电子元器件, ingest_seq: 5}
+      - {order_id: ORD-R006, supplier_id: SUP-1002, created_at: "2026-10-01T07:00:00Z", amount_cents: 300, status: paid,     region: 华南, category: 包装材料, ingest_seq: 6}
+      - {order_id: ORD-R007, supplier_id: SUP-1002, created_at: "2026-10-01T08:00:00Z", amount_cents: 300, status: paid,     region: 华南, category: 包装材料, ingest_seq: 7}
+
+  - name: suppliers_span
+    description: >
+      供应商跨 9/10/11 三个月活跃，且同一供应商在多个日期重复出现：
+      用于验证时间粒度归桶、跨期去重不可加、以及 (supplier_id, 日期) 拼键去重的错误。
+    supplier_stats:
+      - {supplier_id: SUP-2001, stat_time: "2026-09-28T02:00:00Z", is_active: true,  region: 华东, category: 电子元器件}
+      - {supplier_id: SUP-2001, stat_time: "2026-10-15T02:00:00Z", is_active: true,  region: 华东, category: 电子元器件}
+      - {supplier_id: SUP-2001, stat_time: "2026-11-02T02:00:00Z", is_active: true,  region: 华东, category: 电子元器件}
+      - {supplier_id: SUP-2002, stat_time: "2026-10-03T02:00:00Z", is_active: true,  region: 华南, category: 包装材料}
+      - {supplier_id: SUP-2002, stat_time: "2026-11-04T02:00:00Z", is_active: false, region: 华南, category: 包装材料}
+      - {supplier_id: SUP-2003, stat_time: "2026-10-06T02:00:00Z", is_active: true,  region: 华北, category: 物流服务}
+      - {supplier_id: SUP-2003, stat_time: "2026-10-20T02:00:00Z", is_active: true,  region: 华北, category: 物流服务}
+      - {supplier_id: SUP-2004, stat_time: "2026-09-29T02:00:00Z", is_active: false, region: 西南, category: 办公用品}
+    order_facts:
+      - {order_id: ORD-S001, supplier_id: SUP-2001, created_at: "2026-09-28T02:00:00Z", amount_cents: 500, status: paid, region: 华东, category: 电子元器件, ingest_seq: 1}
+      - {order_id: ORD-S002, supplier_id: SUP-2002, created_at: "2026-10-03T02:00:00Z", amount_cents: 600, status: paid, region: 华南, category: 包装材料, ingest_seq: 2}
+      - {order_id: ORD-S003, supplier_id: SUP-2003, created_at: "2026-11-02T02:00:00Z", amount_cents: 700, status: paid, region: 华北, category: 物流服务, ingest_seq: 3}
+
+  - name: large_cardinality
+    description: 大基数确定性生成器（固定种子/参数），用于抽样可信度与并行隔离。
+    generator: large_cardinality
+    params:
+      seed: 20261115
+      orders: 12000
+      suppliers: 1200
+      days: 30
+      regions: [华东, 华南, 华北, 西南]
+      categories: [电子元器件, 包装材料, 物流服务, 办公用品]
+
+derived:
+  - name: orders_core_reversed
+    description: >
+      同 orders_core，但事实行按相反顺序插入。任何“依赖插入顺序/存储返回顺序”
+      的实现都会在此暴露；配合 max_by + ingest_seq 去重应得到完全一致的参考结果。
+    from: orders_core
+    rules:
+      reverse_order_facts: true
+      reverse_supplier_stats: true

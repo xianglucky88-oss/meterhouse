@@ -1,0 +1,844 @@
+{
+  "approval": {
+    "approved_at": "2026-11-15T08:39:30+00:00",
+    "approver": "bootstrap",
+    "commit": "",
+    "reason": "rebuild after strict schema + dedup fix",
+    "ticket": "INIT-0"
+  },
+  "approved_at": "2026-11-15T08:39:30+00:00",
+  "datasets": {
+    "large_cardinality": "597076fb75eba50a",
+    "orders_core": "49673c731906c27a",
+    "orders_core_reversed": "30a09ba111c9ffae",
+    "orders_empty": "b3c351c7af475419",
+    "ratio_skew": "ae68e64d60120cfe",
+    "suppliers_span": "024a8b2acb865430"
+  },
+  "metrics": {
+    "active_suppliers": {
+      "definition_version": 2,
+      "semantic_hash": "de9c1e5b93fec433"
+    },
+    "avg_order_cents": {
+      "definition_version": 2,
+      "semantic_hash": "118e1af9774e5d4b"
+    },
+    "gmv_cents": {
+      "definition_version": 2,
+      "semantic_hash": "072f1e29085e06de"
+    },
+    "orders_total": {
+      "definition_version": 2,
+      "semantic_hash": "d2a4b4a52c19ad1e"
+    },
+    "paid_rate": {
+      "definition_version": 2,
+      "semantic_hash": "d3a0ad6b990a5c75"
+    },
+    "suppliers_total": {
+      "definition_version": 2,
+      "semantic_hash": "b8bcda65c26403b5"
+    }
+  },
+  "scenarios": {
+    "dimensions/orders_region_category": {
+      "dataset": "orders_core",
+      "dataset_hash": "49673c731906c27a",
+      "fingerprint": "77cf025c05553152",
+      "queries": {
+        "267bd290b28d4932": {
+          "key": "267bd290b28d4932",
+          "key_columns": [
+            "region",
+            "category"
+          ],
+          "rows": [
+            {
+              "category": "包装材料",
+              "gmv_cents": 1500,
+              "region": "华东"
+            },
+            {
+              "category": "电子元器件",
+              "gmv_cents": 1800,
+              "region": "华东"
+            },
+            {
+              "category": "物流服务",
+              "gmv_cents": 2000,
+              "region": "华北"
+            },
+            {
+              "category": "包装材料",
+              "gmv_cents": 400,
+              "region": "华南"
+            },
+            {
+              "category": null,
+              "gmv_cents": 2600,
+              "region": "华南"
+            },
+            {
+              "category": "办公用品",
+              "gmv_cents": 900,
+              "region": "西南"
+            }
+          ]
+        },
+        "5629f7fd58816c7b": {
+          "key": "5629f7fd58816c7b",
+          "key_columns": [],
+          "rows": [
+            {
+              "orders_total": 2
+            }
+          ]
+        },
+        "c1f28c59b74db371": {
+          "key": "c1f28c59b74db371",
+          "key_columns": [
+            "region",
+            "category"
+          ],
+          "rows": [
+            {
+              "category": "包装材料",
+              "orders_total": 2,
+              "region": "华东"
+            },
+            {
+              "category": "电子元器件",
+              "orders_total": 2,
+              "region": "华东"
+            },
+            {
+              "category": "物流服务",
+              "orders_total": 2,
+              "region": "华北"
+            },
+            {
+              "category": "包装材料",
+              "orders_total": 1,
+              "region": "华南"
+            },
+            {
+              "category": null,
+              "orders_total": 2,
+              "region": "华南"
+            },
+            {
+              "category": "办公用品",
+              "orders_total": 1,
+              "region": "西南"
+            }
+          ]
+        },
+        "fe3b82563bc1fc74": {
+          "key": "fe3b82563bc1fc74",
+          "key_columns": [
+            "category"
+          ],
+          "rows": [
+            {
+              "category": "办公用品",
+              "orders_total": 1
+            },
+            {
+              "category": "包装材料",
+              "orders_total": 3
+            },
+            {
+              "category": "物流服务",
+              "orders_total": 2
+            },
+            {
+              "category": "电子元器件",
+              "orders_total": 2
+            },
+            {
+              "category": null,
+              "orders_total": 2
+            }
+          ]
+        }
+      }
+    },
+    "dimensions/suppliers_region_and_supplier_count": {
+      "dataset": "orders_core",
+      "dataset_hash": "49673c731906c27a",
+      "fingerprint": "030d1612caf2d3b5",
+      "queries": {
+        "950ae753d1af47fe": {
+          "key": "950ae753d1af47fe",
+          "key_columns": [
+            "region"
+          ],
+          "rows": [
+            {
+              "region": "华东",
+              "suppliers_total": 3
+            },
+            {
+              "region": "华北",
+              "suppliers_total": 1
+            },
+            {
+              "region": "华南",
+              "suppliers_total": 2
+            },
+            {
+              "region": "西南",
+              "suppliers_total": 1
+            }
+          ]
+        },
+        "cad4261a2ff2357e": {
+          "key": "cad4261a2ff2357e",
+          "key_columns": [
+            "region"
+          ],
+          "rows": [
+            {
+              "active_suppliers": 3,
+              "region": "华东"
+            },
+            {
+              "active_suppliers": 1,
+              "region": "华北"
+            },
+            {
+              "active_suppliers": 2,
+              "region": "华南"
+            }
+          ]
+        }
+      }
+    },
+    "duplicate_facts/dedup_by_order_id": {
+      "dataset": "orders_core",
+      "dataset_hash": "49673c731906c27a",
+      "fingerprint": "41b068cdb963e293",
+      "queries": {
+        "421febf2c5eda3bd": {
+          "key": "421febf2c5eda3bd",
+          "key_columns": [],
+          "rows": [
+            {
+              "avg_order_cents": 1022.2222222222222
+            }
+          ]
+        },
+        "73d99e1d1e341f63": {
+          "key": "73d99e1d1e341f63",
+          "key_columns": [],
+          "rows": [
+            {
+              "gmv_cents": 9200
+            }
+          ]
+        },
+        "ebe32fc18df3edf6": {
+          "key": "ebe32fc18df3edf6",
+          "key_columns": [],
+          "rows": [
+            {
+              "orders_total": 10
+            }
+          ]
+        }
+      }
+    },
+    "duplicate_facts/dedup_order_independent": {
+      "dataset": "orders_core_reversed",
+      "dataset_hash": "30a09ba111c9ffae",
+      "fingerprint": "7d2313dc39eb99e7",
+      "queries": {
+        "73d99e1d1e341f63": {
+          "key": "73d99e1d1e341f63",
+          "key_columns": [],
+          "rows": [
+            {
+              "gmv_cents": 9200
+            }
+          ]
+        },
+        "ebe32fc18df3edf6": {
+          "key": "ebe32fc18df3edf6",
+          "key_columns": [],
+          "rows": [
+            {
+              "orders_total": 10
+            }
+          ]
+        }
+      }
+    },
+    "filters/filter_in_list": {
+      "dataset": "orders_core",
+      "dataset_hash": "49673c731906c27a",
+      "fingerprint": "cedfd67c325f8782",
+      "queries": {
+        "ac04053803af0383": {
+          "key": "ac04053803af0383",
+          "key_columns": [
+            "region"
+          ],
+          "rows": [
+            {
+              "orders_total": 4,
+              "region": "华东"
+            },
+            {
+              "orders_total": 3,
+              "region": "华南"
+            }
+          ]
+        }
+      }
+    },
+    "filters/filter_intersection": {
+      "dataset": "orders_core",
+      "dataset_hash": "49673c731906c27a",
+      "fingerprint": "2b9a5b2e8e80612e",
+      "queries": {
+        "a940d812e39053c6": {
+          "key": "a940d812e39053c6",
+          "key_columns": [
+            "region"
+          ],
+          "rows": [
+            {
+              "paid_rate": 0.75,
+              "region": "华东"
+            }
+          ]
+        },
+        "e617ca9c4bfc47a9": {
+          "key": "e617ca9c4bfc47a9",
+          "key_columns": [
+            "region"
+          ],
+          "rows": [
+            {
+              "orders_total": 4,
+              "region": "华东"
+            }
+          ]
+        },
+        "e69c3adfbe4d2946": {
+          "key": "e69c3adfbe4d2946",
+          "key_columns": [
+            "region"
+          ],
+          "rows": [
+            {
+              "gmv_cents": 3300,
+              "region": "华东"
+            }
+          ]
+        }
+      }
+    },
+    "granularity/orders_daily_gap_fill": {
+      "dataset": "orders_core",
+      "dataset_hash": "49673c731906c27a",
+      "fingerprint": "4e8399e525a76725",
+      "queries": {
+        "5068463a0a467f47": {
+          "key": "5068463a0a467f47",
+          "key_columns": [
+            "date"
+          ],
+          "rows": [
+            {
+              "date": "2026-10-01",
+              "gmv_cents": 2300
+            },
+            {
+              "date": "2026-10-02",
+              "gmv_cents": 6100
+            },
+            {
+              "date": "2026-10-03",
+              "gmv_cents": 800
+            },
+            {
+              "date": "2026-10-04",
+              "gmv_cents": 0
+            }
+          ]
+        }
+      }
+    },
+    "granularity/orders_daily_local_tz": {
+      "dataset": "orders_core",
+      "dataset_hash": "49673c731906c27a",
+      "fingerprint": "eebf62af5f3667b0",
+      "queries": {
+        "01da57d31da99b7c": {
+          "key": "01da57d31da99b7c",
+          "key_columns": [
+            "date"
+          ],
+          "rows": [
+            {
+              "date": "2026-10-01",
+              "gmv_cents": 2300
+            },
+            {
+              "date": "2026-10-02",
+              "gmv_cents": 6100
+            },
+            {
+              "date": "2026-10-03",
+              "gmv_cents": 800
+            }
+          ]
+        },
+        "cbd42217b357ecbc": {
+          "key": "cbd42217b357ecbc",
+          "key_columns": [
+            "date"
+          ],
+          "rows": [
+            {
+              "date": "2026-10-01",
+              "orders_total": 4
+            },
+            {
+              "date": "2026-10-02",
+              "orders_total": 5
+            },
+            {
+              "date": "2026-10-03",
+              "orders_total": 1
+            }
+          ]
+        }
+      }
+    },
+    "granularity/suppliers_monthly_rollup": {
+      "dataset": "suppliers_span",
+      "dataset_hash": "024a8b2acb865430",
+      "fingerprint": "86ab2e22dba40373",
+      "queries": {
+        "08ed662a4786497d": {
+          "key": "08ed662a4786497d",
+          "key_columns": [],
+          "rows": [
+            {
+              "active_suppliers": 3
+            }
+          ]
+        },
+        "b2b1e10ec0893bbd": {
+          "key": "b2b1e10ec0893bbd",
+          "key_columns": [
+            "date"
+          ],
+          "rows": [
+            {
+              "active_suppliers": 1,
+              "date": "2026-09-01"
+            },
+            {
+              "active_suppliers": 3,
+              "date": "2026-10-01"
+            },
+            {
+              "active_suppliers": 1,
+              "date": "2026-11-01"
+            }
+          ]
+        },
+        "ef1f9bbf377fd2be": {
+          "key": "ef1f9bbf377fd2be",
+          "key_columns": [
+            "region",
+            "date"
+          ],
+          "rows": [
+            {
+              "active_suppliers": 1,
+              "date": "2026-09-01",
+              "region": "华东"
+            },
+            {
+              "active_suppliers": 1,
+              "date": "2026-10-01",
+              "region": "华东"
+            },
+            {
+              "active_suppliers": 1,
+              "date": "2026-11-01",
+              "region": "华东"
+            },
+            {
+              "active_suppliers": 1,
+              "date": "2026-10-01",
+              "region": "华北"
+            },
+            {
+              "active_suppliers": 1,
+              "date": "2026-10-01",
+              "region": "华南"
+            }
+          ]
+        }
+      }
+    },
+    "non_additive/active_suppliers_not_additive": {
+      "dataset": "suppliers_span",
+      "dataset_hash": "024a8b2acb865430",
+      "fingerprint": "38fe3b2c75cbe80f",
+      "queries": {
+        "034cb7ff580fab0a": {
+          "key": "034cb7ff580fab0a",
+          "key_columns": [
+            "date"
+          ],
+          "rows": [
+            {
+              "active_suppliers": 1,
+              "date": "2026-09-28"
+            },
+            {
+              "active_suppliers": 1,
+              "date": "2026-10-03"
+            },
+            {
+              "active_suppliers": 1,
+              "date": "2026-10-06"
+            },
+            {
+              "active_suppliers": 1,
+              "date": "2026-10-15"
+            },
+            {
+              "active_suppliers": 1,
+              "date": "2026-10-20"
+            },
+            {
+              "active_suppliers": 1,
+              "date": "2026-11-02"
+            }
+          ]
+        },
+        "08ed662a4786497d": {
+          "key": "08ed662a4786497d",
+          "key_columns": [],
+          "rows": [
+            {
+              "active_suppliers": 3
+            }
+          ]
+        },
+        "472060fd6f47554c": {
+          "key": "472060fd6f47554c",
+          "key_columns": [],
+          "rows": [
+            {
+              "active_suppliers": 3
+            }
+          ]
+        },
+        "b2b1e10ec0893bbd": {
+          "key": "b2b1e10ec0893bbd",
+          "key_columns": [
+            "date"
+          ],
+          "rows": [
+            {
+              "active_suppliers": 1,
+              "date": "2026-09-01"
+            },
+            {
+              "active_suppliers": 3,
+              "date": "2026-10-01"
+            },
+            {
+              "active_suppliers": 1,
+              "date": "2026-11-01"
+            }
+          ]
+        },
+        "cad4261a2ff2357e": {
+          "key": "cad4261a2ff2357e",
+          "key_columns": [
+            "region"
+          ],
+          "rows": [
+            {
+              "active_suppliers": 1,
+              "region": "华东"
+            },
+            {
+              "active_suppliers": 1,
+              "region": "华北"
+            },
+            {
+              "active_suppliers": 1,
+              "region": "华南"
+            }
+          ]
+        }
+      }
+    },
+    "non_additive/gmv_additive": {
+      "dataset": "orders_core",
+      "dataset_hash": "49673c731906c27a",
+      "fingerprint": "c000187c7bf59a92",
+      "queries": {
+        "01da57d31da99b7c": {
+          "key": "01da57d31da99b7c",
+          "key_columns": [
+            "date"
+          ],
+          "rows": [
+            {
+              "date": "2026-10-01",
+              "gmv_cents": 2300
+            },
+            {
+              "date": "2026-10-02",
+              "gmv_cents": 6100
+            },
+            {
+              "date": "2026-10-03",
+              "gmv_cents": 800
+            }
+          ]
+        },
+        "42bfdde57cce0f09": {
+          "key": "42bfdde57cce0f09",
+          "key_columns": [],
+          "rows": [
+            {
+              "gmv_cents": 9200
+            }
+          ]
+        }
+      }
+    },
+    "nulls/empty_source_metrics": {
+      "dataset": "orders_empty",
+      "dataset_hash": "b3c351c7af475419",
+      "fingerprint": "924b931a57469748",
+      "queries": {
+        "08ed662a4786497d": {
+          "key": "08ed662a4786497d",
+          "key_columns": [],
+          "rows": [
+            {
+              "active_suppliers": 0
+            }
+          ]
+        },
+        "421febf2c5eda3bd": {
+          "key": "421febf2c5eda3bd",
+          "key_columns": [],
+          "rows": [
+            {
+              "avg_order_cents": null
+            }
+          ]
+        },
+        "73d99e1d1e341f63": {
+          "key": "73d99e1d1e341f63",
+          "key_columns": [],
+          "rows": [
+            {
+              "gmv_cents": 0
+            }
+          ]
+        },
+        "7b3f5ea9f99e8912": {
+          "key": "7b3f5ea9f99e8912",
+          "key_columns": [],
+          "rows": [
+            {
+              "paid_rate": 0.0
+            }
+          ]
+        }
+      }
+    },
+    "nulls/null_group_counted": {
+      "dataset": "orders_core",
+      "dataset_hash": "49673c731906c27a",
+      "fingerprint": "4f2414f8fe46e467",
+      "queries": {
+        "ebe32fc18df3edf6": {
+          "key": "ebe32fc18df3edf6",
+          "key_columns": [],
+          "rows": [
+            {
+              "orders_total": 10
+            }
+          ]
+        },
+        "fe3b82563bc1fc74": {
+          "key": "fe3b82563bc1fc74",
+          "key_columns": [
+            "category"
+          ],
+          "rows": [
+            {
+              "category": "办公用品",
+              "orders_total": 1
+            },
+            {
+              "category": "包装材料",
+              "orders_total": 3
+            },
+            {
+              "category": "物流服务",
+              "orders_total": 2
+            },
+            {
+              "category": "电子元器件",
+              "orders_total": 2
+            },
+            {
+              "category": null,
+              "orders_total": 2
+            }
+          ]
+        }
+      }
+    },
+    "ratio/paid_rate_weighted": {
+      "dataset": "ratio_skew",
+      "dataset_hash": "ae68e64d60120cfe",
+      "fingerprint": "23725efeff2081b5",
+      "queries": {
+        "063df37fc4f41961": {
+          "key": "063df37fc4f41961",
+          "key_columns": [
+            "region"
+          ],
+          "rows": [
+            {
+              "avg_order_cents": 100.0,
+              "region": "华东"
+            },
+            {
+              "avg_order_cents": 300.0,
+              "region": "华南"
+            }
+          ]
+        },
+        "41e7b3239c18afd9": {
+          "key": "41e7b3239c18afd9",
+          "key_columns": [
+            "region"
+          ],
+          "rows": [
+            {
+              "orders_total": 5,
+              "region": "华东"
+            },
+            {
+              "orders_total": 2,
+              "region": "华南"
+            }
+          ]
+        },
+        "5350ce89f8632379": {
+          "key": "5350ce89f8632379",
+          "key_columns": [
+            "region"
+          ],
+          "rows": [
+            {
+              "paid_rate": 0.6,
+              "region": "华东"
+            },
+            {
+              "paid_rate": 1.0,
+              "region": "华南"
+            }
+          ]
+        },
+        "63290658054670c6": {
+          "key": "63290658054670c6",
+          "key_columns": [
+            "region"
+          ],
+          "rows": [
+            {
+              "orders_total": 3,
+              "region": "华东"
+            },
+            {
+              "orders_total": 2,
+              "region": "华南"
+            }
+          ]
+        }
+      }
+    },
+    "sampling/large_cardinality_groups": {
+      "dataset": "large_cardinality",
+      "dataset_hash": "597076fb75eba50a",
+      "fingerprint": "bfb50a0ce27d9461",
+      "queries": {
+        "476540f965805315": {
+          "key": "476540f965805315",
+          "key_columns": [
+            "region",
+            "category"
+          ],
+          "rows": [
+            {
+              "active_suppliers": 300,
+              "category": "电子元器件",
+              "region": "华东"
+            },
+            {
+              "active_suppliers": 300,
+              "category": "物流服务",
+              "region": "华北"
+            },
+            {
+              "active_suppliers": 300,
+              "category": "包装材料",
+              "region": "华南"
+            },
+            {
+              "active_suppliers": 300,
+              "category": "办公用品",
+              "region": "西南"
+            }
+          ]
+        },
+        "cad4261a2ff2357e": {
+          "key": "cad4261a2ff2357e",
+          "key_columns": [
+            "region"
+          ],
+          "rows": [
+            {
+              "active_suppliers": 300,
+              "region": "华东"
+            },
+            {
+              "active_suppliers": 300,
+              "region": "华北"
+            },
+            {
+              "active_suppliers": 300,
+              "region": "华南"
+            },
+            {
+              "active_suppliers": 300,
+              "region": "西南"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "schema": 1
+}

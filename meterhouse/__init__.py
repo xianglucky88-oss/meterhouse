@@ -1,13 +1,11 @@
 """meterhouse —— 内部经营看板与指标语义层。
 
-现状：
-    * 6 个指标散落在 3 个接口里，每个接口各写一段 SQL；
-    * 同一个"活跃供应商数"有 3 份口径互相矛盾的实现；
-    * 没有指标定义文件，没有口径回归测试。
-
-目标（题目）：
-    建立 YAML 指标定义 + 编译器，从定义生成 SQL，
-    让所有接口都从同一份语义层取数。
+结构：
+    * metrics/metrics.yaml 是指标口径契约，meterhouse.semantic 把它编译成 SQL；
+    * 页面接口仍保留历史手写 SQL，/api/v1/parity 用于对比口径差异；
+    * meterhouse.regression 是独立于生产实现的语义回归体系：
+      参考口径由纯 Python oracle 计算，候选实现单独执行，
+      基准变更必须显式审批（见 docs/metric-regression.md）。
 
 本地执行用 DuckDB（秒级），生产是 ClickHouse。
 SQL 方言差异由 sql/dialect.py 的适配层处理。

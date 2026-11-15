@@ -1,0 +1,71 @@
+# 手工核算的夹具真值（与指标定义、编译器、oracle 均无关）。
+#
+# 存在的理由：oracle 也由 metrics.yaml 派生。如果定义本身写错（例如 dedup 放在
+# 错误层级被忽略），候选与 oracle 会一起算错，回归反而全部通过。这里的数字是
+# 逐行手算的，用来锚定“定义 + oracle”这一层自身的正确性。
+#
+# 每项都写明推导过程，审查者可按行复核。任何一项不符，说明参考层本身坏了，
+# 必须先修参考层，不能改这里去迁就实现。
+#
+# 记法：orders_core 中 paid 订单按 order_id 去重（取 amount_cents 最大）后：
+#   ORD-000001=1000, 000002=2000, 000004=700( dup: 500/700 ),
+#   ORD-000005=900, 000006=400, 000007=600, 000008=800,
+#   ORD-000009=1300( dup: 1100/1300 ), ORD-000010=1500
+#   合计 9200 分；已支付去重订单 9 单；去重订单总数 10 单；退款 1 单（ORD-000003）。
+# 本地业务日（UTC+8）归属：
+#   10-01: 000001(15:59Z→23:59), 000003(refunded), 000005(09-30 23:00Z→10-01), 000006
+#   10-02: 000002(10-01 16:00Z→10-02 00:00), 000004, 000007, 000009, 000010(23:30Z→10-02)
+#   10-03: 000008
+datasets:
+  orders_core:
+    - query: {metric: orders_total}
+      value: 10
+    - query: {metric: gmv_cents}
+      value: 9200
+    - query: {metric: paid_rate}
+      value: 0.9
+    - query: {metric: avg_order_cents}
+      value: 1022.2222222222222
+    - query: {metric: gmv_cents, granularity: day, time_range: {start: "2026-10-01", end: "2026-10-04"}}
+      value:
+        - {date: "2026-10-01", gmv_cents: 2300}
+        - {date: "2026-10-02", gmv_cents: 6100}
+        - {date: "2026-10-03", gmv_cents: 800}
+    - query: {metric: orders_total, dimensions: [category]}
+      value:
+        - {category: null, orders_total: 2}
+        - {category: 办公用品, orders_total: 1}
+        - {category: 包装材料, orders_total: 3}
+        - {category: 物流服务, orders_total: 2}
+        - {category: 电子元器件, orders_total: 2}
+  orders_empty:
+    # 两笔订单、全部退款：分母非空，因此成功率为 0（不是 null）；
+    # 客单价的分母是“已支付订单数”，为 0，按契约返回 null。
+    - query: {metric: gmv_cents}
+      value: 0
+    - query: {metric: paid_rate}
+      value: 0.0
+    - query: {metric: avg_order_cents}
+      value: null
+    - query: {metric: active_suppliers}
+      value: 0
+  suppliers_span:
+    # 活跃（is_active=true）供应商：2001、2002(10-03 only)、2003；2004 从未活跃。
+    - query: {metric: active_suppliers}
+      value: 3
+    - query: {metric: suppliers_total}
+      value: 4
+    - query: {metric: suppliers_total, dimensions: [region]}
+      value:
+        - {region: 华东, suppliers_total: 1}
+        - {region: 华南, suppliers_total: 1}
+        - {region: 华北, suppliers_total: 1}
+        - {region: 西南, suppliers_total: 1}
+  ratio_skew:
+    # 华东 3/5=0.6，华南 2/2=1.0；算术平均 0.8，加权重算 5/7≈0.7142857
+    - query: {metric: paid_rate}
+      value: 0.7142857142857143
+    - query: {metric: paid_rate, dimensions: [region]}
+      value:
+        - {region: 华东, paid_rate: 0.6}
+        - {region: 华南, paid_rate: 1.0}

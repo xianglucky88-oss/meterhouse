@@ -1,8 +1,8 @@
 """API。
 
-接口按页面组织，每个接口各自写 SQL —— 这是当前状态，也是核心问题。
-`USE_SEMANTIC_LAYER=1` 时部分接口改走语义层，但语义层只覆盖了 2 个指标，
-口径仍然对不齐。
+页面接口仍保留各自的手写 SQL（历史遗留路径，用 /api/v1/parity 对比差异）；
+`/api/v1/metrics/{name}` 统一走语义层编译器，支持维度、时间粒度与时间过滤。
+语义层的口径由独立回归门禁校验（meterhouse.regression），而不是靠接口自证。
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ import time
 from typing import Any
 
 import duckdb
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 
 from . import __version__
@@ -114,18 +114,29 @@ def list_metrics() -> dict[str, Any]:
 
 
 @app.get("/api/v1/metrics/{name}")
-def query_metric(name: str, dimensions: str | None = None) -> dict[str, Any]:
+def query_metric(
+    name: str,
+    dimensions: str | None = None,
+    granularity: str | None = None,
+    start: str | None = None,
+    end: str | None = None,
+    fill_missing: bool = False,
+) -> dict[str, Any]:
     """通过语义层查询指标。
 
-    当前只支持无维度或多维度，不支持时间粒度、同环比、时间过滤。
+    start/end 为业务时区日期，左闭右开；fill_missing 只支持无维度的序列。
     """
     store = get_store()
     try:
-        if dimensions:
-            dims = [d.strip() for d in dimensions.split(",") if d.strip()]
-            sql = store.compile_grouped(name, dims)
-        else:
-            sql = store.compile(name)
+        dims = [d.strip() for d in dimensions.split(",") if d.strip()] if dimensions else []
+        time_range = {"start": start, "end": end} if start and end else None
+        sql = store.compile(
+            name,
+            dimensions=dims,
+            granularity=granularity,
+            time_range=time_range,
+            fill_missing=fill_missing,
+        )
     except (KeyError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"metric": name, "sql": sql, "rows": _q(sql)}

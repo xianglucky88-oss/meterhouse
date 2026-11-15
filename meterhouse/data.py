@@ -29,13 +29,17 @@ CREATE TABLE IF NOT EXISTS supplier_stats (
     category      VARCHAR NOT NULL
 );
 
+-- ingest_seq 是上游写入序号：重复推送时只有它能稳定决定保留哪一条，
+-- 回归夹具会故意乱序插入，用来验证去重与插入顺序无关。
 CREATE TABLE IF NOT EXISTS order_facts (
     order_id      VARCHAR NOT NULL,
     supplier_id   VARCHAR NOT NULL,
     created_at    TIMESTAMP NOT NULL,   -- UTC
     amount_cents  BIGINT  NOT NULL,
     status        VARCHAR NOT NULL,
-    region        VARCHAR NOT NULL
+    region        VARCHAR NOT NULL,
+    category      VARCHAR,
+    ingest_seq    BIGINT  NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS metric_cache (
@@ -52,7 +56,17 @@ CATEGORIES = ["电子元器件", "包装材料", "物流服务", "办公用品"]
 def connect(path: str) -> duckdb.DuckDBPyConnection:
     con = duckdb.connect(str(path))
     con.execute(DDL)
+    _ensure_columns(con)
     return con
+
+
+def _ensure_columns(con: duckdb.DuckDBPyConnection) -> None:
+    """轻量迁移：老库补出新列，避免本地 data/ 阻塞回归。"""
+    cols = {r[1] for r in con.execute("PRAGMA table_info('order_facts')").fetchall()}
+    if "category" not in cols:
+        con.execute("ALTER TABLE order_facts ADD COLUMN category VARCHAR")
+    if "ingest_seq" not in cols:
+        con.execute("ALTER TABLE order_facts ADD COLUMN ingest_seq BIGINT DEFAULT 0")
 
 
 def seed(con: duckdb.DuckDBPyConnection, seed_value: int = 20261112, days: int = 60, n_suppliers: int = 80) -> dict:
@@ -106,14 +120,16 @@ def seed(con: duckdb.DuckDBPyConnection, seed_value: int = 20261112, days: int =
             rnd.randint(500, 200_000),
             rnd.choice(["paid", "paid", "paid", "refunded"]),
             REGIONS[rnd.randint(0, n_suppliers) % len(REGIONS)],
+            CATEGORIES[rnd.randint(0, n_suppliers) % len(CATEGORIES)],
+            oid,
         )
         order_rows.append(row)
-        # 约 2% 重复推送
+        # 约 2% 重复推送（保留同一 ingest_seq 之外的金额，验证 max_by 去重）
         if rnd.random() < 0.02:
             order_rows.append(row)
         oid += 1
 
-    con.executemany("INSERT INTO order_facts VALUES (?,?,?,?,?,?)", order_rows)
+    con.executemany("INSERT INTO order_facts VALUES (?,?,?,?,?,?,?,?)", order_rows)
 
     return {
         "supplier_stats": con.execute("SELECT count(*) FROM supplier_stats").fetchone()[0],

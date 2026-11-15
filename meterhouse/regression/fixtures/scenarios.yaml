@@ -1,0 +1,308 @@
+# 声明式回归场景。
+#
+# 约束：
+# * 期望数字不写在这里，全部来自已审批基准（baseline/metric_reference.json）；
+# * checks.kind=value 只声明“这个查询要对照基准”，不内嵌结果；
+# * 不变量类检查（non_additive / ratio_recompute / null_policy / sequence /
+#   cardinality）在场景内自洽，可独立发现语义错误；
+# * sampling 场景在基准缺失时仍能给出 inconclusive 结论。
+
+groups:
+  - name: granularity
+    description: 时间粒度、时区归桶与空缺桶
+    scenarios:
+      - id: orders_daily_local_tz
+        description: 订单按业务时区（UTC+8）归日，跨日边界 15:59/16:00 必须分开。
+        dataset: orders_core
+        tags: [time, timezone]
+        queries:
+          - {metric: orders_total, granularity: day, time_range: {start: "2026-10-01", end: "2026-10-04"}}
+          - {metric: gmv_cents, granularity: day, time_range: {start: "2026-10-01", end: "2026-10-04"}}
+        checks:
+          - kind: value
+            name: daily_orders
+            query: {metric: orders_total, granularity: day, time_range: {start: "2026-10-01", end: "2026-10-04"}}
+          - kind: sequence
+            name: daily_ordering
+            query: {metric: orders_total, granularity: day, time_range: {start: "2026-10-01", end: "2026-10-04"}}
+
+      - id: orders_daily_gap_fill
+        description: >
+          时间序列必须补齐空缺桶（10-03 之后 10-04 没有事实），
+          fill_missing 返回 0 而不是直接跳过该日。
+        dataset: orders_core
+        tags: [time, gap]
+        queries:
+          - {metric: gmv_cents, granularity: day, time_range: {start: "2026-10-01", end: "2026-10-05"}, fill_missing: true}
+        checks:
+          - kind: value
+            name: gap_filled
+            query: {metric: gmv_cents, granularity: day, time_range: {start: "2026-10-01", end: "2026-10-05"}, fill_missing: true}
+          - kind: cardinality
+            name: gap_row_count
+            query: {metric: gmv_cents, granularity: day, time_range: {start: "2026-10-01", end: "2026-10-05"}, fill_missing: true}
+
+      - id: suppliers_monthly_rollup
+        description: 供应商活跃数按月归桶，跨月去重不可加。
+        dataset: suppliers_span
+        tags: [time, non_additive]
+        queries:
+          - {metric: active_suppliers, granularity: month, time_range: {start: "2026-09-01", end: "2026-12-01"}}
+          - {metric: active_suppliers, granularity: month, dimensions: [region], time_range: {start: "2026-09-01", end: "2026-12-01"}}
+        checks:
+          - kind: value
+            name: monthly_active
+            query: {metric: active_suppliers, granularity: month, time_range: {start: "2026-09-01", end: "2026-12-01"}}
+          - kind: non_additive
+            name: active_not_additive_over_time
+            related:
+              - {metric: active_suppliers}
+              - {metric: active_suppliers, granularity: month, time_range: {start: "2026-09-01", end: "2026-12-01"}}
+
+  - name: dimensions
+    description: 维度组合、分组基数与取值顺序
+    scenarios:
+      - id: orders_region_category
+        description: 二维分组必须按 (region, category) 组合；空 category 是独立分组。
+        dataset: orders_core
+        tags: [dimensions, null]
+        queries:
+          - {metric: orders_total, dimensions: [region, category]}
+          - {metric: gmv_cents, dimensions: [region, category]}
+        checks:
+          - kind: value
+            name: two_dim_orders
+            query: {metric: orders_total, dimensions: [region, category]}
+          - kind: value
+            name: two_dim_gmv
+            query: {metric: gmv_cents, dimensions: [region, category]}
+          - kind: null_policy
+            name: null_category_is_group
+            query: {metric: orders_total, dimensions: [category]}
+            related:
+              - {metric: orders_total, filters: [{column: category, op: is_null}]}
+          - kind: sequence
+            name: dim_ordering
+            query: {metric: orders_total, dimensions: [region, category]}
+
+      - id: suppliers_region_and_supplier_count
+        description: 供应商总数与活跃数在不同维度下的差集关系。
+        dataset: orders_core
+        tags: [dimensions, distinct]
+        queries:
+          - {metric: suppliers_total, dimensions: [region]}
+          - {metric: active_suppliers, dimensions: [region]}
+        checks:
+          - kind: value
+            name: suppliers_by_region
+            query: {metric: suppliers_total, dimensions: [region]}
+          - kind: value
+            name: active_by_region
+            query: {metric: active_suppliers, dimensions: [region]}
+
+  - name: filters
+    description: 筛选交集、指标自带筛选与调用方筛选的合并
+    scenarios:
+      - id: filter_intersection
+        description: >
+          场景筛选与指标定义筛选必须取交集（status='paid' + region='华东'），
+          而不是覆盖指标自身的 status 过滤。
+        dataset: orders_core
+        tags: [filters]
+        queries:
+          - {metric: gmv_cents, dimensions: [region], filters: [{column: region, op: eq, value: 华东}]}
+          - {metric: orders_total, dimensions: [region], filters: [{column: region, op: eq, value: 华东}]}
+          - {metric: paid_rate, dimensions: [region], filters: [{column: region, op: eq, value: 华东}]}
+        checks:
+          - kind: value
+            name: filtered_gmv
+            query: {metric: gmv_cents, dimensions: [region], filters: [{column: region, op: eq, value: 华东}]}
+          - kind: value
+            name: filtered_orders
+            query: {metric: orders_total, dimensions: [region], filters: [{column: region, op: eq, value: 华东}]}
+          - kind: value
+            name: filtered_ratio
+            query: {metric: paid_rate, dimensions: [region], filters: [{column: region, op: eq, value: 华东}]}
+
+      - id: filter_in_list
+        description: IN 筛选必须与维度分组一致，且不改变指标自身过滤。
+        dataset: orders_core
+        tags: [filters]
+        queries:
+          - {metric: orders_total, dimensions: [region], filters: [{column: region, op: in, value: [华东, 华南]}]}
+        checks:
+          - kind: value
+            name: in_filter
+            query: {metric: orders_total, dimensions: [region], filters: [{column: region, op: in, value: [华东, 华南]}]}
+
+  - name: nulls
+    description: 空值与空集语义
+    scenarios:
+      - id: empty_source_metrics
+        description: 无已支付订单时 gmv=0，比率类返回 null（不是 0，也不是 NULL 冒充 0）。
+        dataset: orders_empty
+        tags: [null, empty]
+        queries:
+          - {metric: gmv_cents}
+          - {metric: paid_rate}
+          - {metric: avg_order_cents}
+          - {metric: active_suppliers}
+        checks:
+          - kind: value
+            name: empty_gmv
+            query: {metric: gmv_cents}
+          - kind: value
+            name: empty_ratio
+            query: {metric: paid_rate}
+          - kind: value
+            name: empty_avg
+            query: {metric: avg_order_cents}
+          - kind: value
+            name: empty_active
+            query: {metric: active_suppliers}
+
+      - id: null_group_counted
+        description: 空维度值计入总订单数，不能因分组键为 NULL 被丢掉。
+        dataset: orders_core
+        tags: [null]
+        queries:
+          - {metric: orders_total}
+          - {metric: orders_total, dimensions: [category]}
+        checks:
+          - kind: invariant
+            name: null_group_preserves_total
+            query: {metric: orders_total, dimensions: [category]}
+            related:
+              - {metric: orders_total}
+
+  - name: duplicate_facts
+    description: 重复事实与去重口径
+    scenarios:
+      - id: dedup_by_order_id
+        description: >
+          同一 order_id 的多条推送必须去重后再求和/计数；金额取 max。
+          通过 orders_core_reversed 验证与插入顺序无关。
+        dataset: orders_core
+        tags: [dedup, ordering]
+        queries:
+          - {metric: gmv_cents}
+          - {metric: orders_total}
+          - {metric: avg_order_cents}
+        checks:
+          - kind: value
+            name: dedup_gmv
+            query: {metric: gmv_cents}
+          - kind: value
+            name: dedup_orders
+            query: {metric: orders_total}
+          - kind: value
+            name: dedup_avg
+            query: {metric: avg_order_cents}
+
+      - id: dedup_order_independent
+        description: 反向插入同一批事实，结果必须与 orders_core 完全一致。
+        dataset: orders_core_reversed
+        tags: [dedup, ordering]
+        queries:
+          - {metric: gmv_cents}
+          - {metric: orders_total}
+        checks:
+          - kind: value
+            name: reversed_gmv
+            query: {metric: gmv_cents}
+          - kind: value
+            name: reversed_orders
+            query: {metric: orders_total}
+
+  - name: ratio
+    description: 比率重算与不可平均
+    scenarios:
+      - id: paid_rate_weighted
+        description: >
+          分组支付率必须按各自分子分母重算；各组比率的算术平均与加权结果不同，
+          用 ratio_recompute 同时校验逐组一致性与全局重算。
+        dataset: ratio_skew
+        tags: [ratio, non_additive]
+        queries:
+          - {metric: paid_rate, dimensions: [region]}
+          - {metric: avg_order_cents, dimensions: [region]}
+        checks:
+          - kind: value
+            name: regional_paid_rate
+            query: {metric: paid_rate, dimensions: [region]}
+          - kind: ratio_recompute
+            name: paid_rate_recomputed
+            query: {metric: paid_rate, dimensions: [region]}
+            related:
+              - {metric: orders_total, dimensions: [region], filters: [{column: status, op: eq, value: paid}]}
+              - {metric: orders_total, dimensions: [region]}
+          - kind: value
+            name: regional_avg
+            query: {metric: avg_order_cents, dimensions: [region]}
+
+  - name: non_additive
+    description: 不可聚合指标的上卷语义
+    scenarios:
+      - id: active_suppliers_not_additive
+        description: >
+          活跃供应商数是跨期去重指标：各日之和必须严格大于全期值，
+          任何“把各期相加”的实现会在此暴露。
+        dataset: suppliers_span
+        tags: [non_additive, distinct]
+        queries:
+          - {metric: active_suppliers, granularity: month, time_range: {start: "2026-09-01", end: "2026-12-01"}}
+          - {metric: active_suppliers}
+          - {metric: active_suppliers, dimensions: [region]}
+        checks:
+          - kind: value
+            name: monthly_active_days
+            query: {metric: active_suppliers, granularity: day, time_range: {start: "2026-09-01", end: "2026-12-01"}}
+          - kind: non_additive
+            name: active_daily_not_additive
+            related:
+              - {metric: active_suppliers, time_range: {start: "2026-09-01", end: "2026-12-01"}}
+              - {metric: active_suppliers, granularity: day, time_range: {start: "2026-09-01", end: "2026-12-01"}}
+
+      - id: gmv_additive
+        description: 金额类指标沿时间可加：各日之和必须等于全期值。
+        dataset: orders_core
+        tags: [additive]
+        queries:
+          - {metric: gmv_cents, granularity: day, time_range: {start: "2026-10-01", end: "2026-10-04"}}
+          - {metric: gmv_cents, time_range: {start: "2026-10-01", end: "2026-10-04"}}
+        checks:
+          - kind: value
+            name: additive_daily
+            query: {metric: gmv_cents, granularity: day, time_range: {start: "2026-10-01", end: "2026-10-04"}}
+          - kind: invariant
+            name: additive_rollup
+            query: {metric: gmv_cents, granularity: day, time_range: {start: "2026-10-01", end: "2026-10-04"}}
+            related:
+              - {metric: gmv_cents, time_range: {start: "2026-10-01", end: "2026-10-04"}}
+
+  - name: sampling
+    description: 大基数抽样可信度与可复现性
+    scenarios:
+      - id: large_cardinality_groups
+        description: >
+          1200 供应商 × 30 天的分组结果抽样校验：确定性抽样，比例置信区间判定；
+          inconclusive 只告警不阻断。
+        dataset: large_cardinality
+        tags: [sampling, large_cardinality]
+        sampling:
+          metric: active_suppliers
+          dimensions: [supplier_id]
+          # 400 个样本、0 失败时 Wilson 下界约 0.9905，足以在 95% 置信度下
+          # 判定失败率低于 3%（sample_size_for_zero_failures(0.03) = 125）。
+          # 取 400 是为了留出余量；样本不足时如实返回 inconclusive。
+          sample_size: 400
+          expected_pass_ratio: 1.0
+          pass_ratio_tolerance: 0.03
+          value_relative_tolerance: 1e-9
+        checks:
+          - kind: value
+            name: large_active_by_region
+            query: {metric: active_suppliers, dimensions: [region]}
+          - kind: cardinality
+            name: large_group_count
+            query: {metric: active_suppliers, dimensions: [region, category]}

@@ -1,78 +1,135 @@
-# 指标语义层定义（草稿）
+# 指标语义层定义。
 #
-# 目标：所有接口、报表、导出都从这里取数。
-# 现状：只用了 2 个指标，其余仍在 meterhouse/queries.py 里手写。
+# 这是所有接口、报表与回归基准共用的口径契约。字段说明见 docs/metric-regression.md。
+# 语义字段（kind/measure/filters/dedup/dimensions/time_column/additivity/empty_value）
+# 的任何改动都会改变 definition fingerprint，回归门禁会要求显式重新审批基准。
 
-version: 1
+version: 2
+
+defaults:
+  timezone_offset_hours: 8
 
 metrics:
   - name: active_suppliers
     label: 活跃供应商数
+    definition_version: 2
     description: >
-      统计窗口内有活跃快照的供应商数量。
-      口径：按 supplier_id 去重。注意 stat_time 是 UTC，
-      若按日期下钻，必须先转换到业务时区。
+      统计窗口内 is_active 快照覆盖的供应商数，按 supplier_id 去重。
+      stat_time 为 UTC；按日期下钻时先换算到业务时区。
+      去重计数不可沿时间相加：1 月 + 2 月 != 整个季度。
     kind: distinct
     source: supplier_stats
-    expr: count(DISTINCT supplier_id)
+    measure:
+      agg: count_distinct
+      column: supplier_id
     filters:
-      - "is_active"
-    dimensions: [region, category]
+      - {column: is_active, op: eq, value: true}
+    dimensions: [region, category, supplier_id]
     time_column: stat_time
-    # 去重计数在时间维度上不可加：1 月 + 2 月 != 整个季度
     additivity: non_additive
+    empty_value: 0
 
   - name: gmv_cents
     label: 成交金额（分）
+    definition_version: 2
     description: >
-      已支付订单金额合计。必须先按 order_id 去重，因为上游存在重复推送。
+      已支付订单金额合计。先筛选 status='paid'，再按 order_id 去重
+      （上游会重复推送，保留 amount_cents 最大的一条），最后求和。
+      金额为整数分，沿时间与维度均可加。
     kind: simple
     source: order_facts
-    expr: "coalesce(sum(amount_cents), 0)"
+    measure:
+      agg: sum
+      column: amount_cents
+      dedup:
+        keys: [order_id]
+        policy: max_by
+        column: amount_cents
+        tiebreak: [ingest_seq]
     filters:
-      - "status = 'paid'"
-    dimensions: [region]
+      - {column: status, op: eq, value: paid}
+    dimensions: [region, category]
     time_column: created_at
     additivity: additive
+    empty_value: 0
 
   - name: orders_total
     label: 订单数
-    description: 去重后的订单数。注意与 gmv_cents 的去重口径必须一致。
+    definition_version: 2
+    description: >
+      去重后的订单数，与 gmv_cents 使用同一套 order_id 去重口径。
+      订单数不可沿时间相加。
     kind: distinct
     source: order_facts
-    expr: count(DISTINCT order_id)
-    dimensions: [region, status]
+    measure:
+      agg: count_distinct
+      column: order_id
+    dimensions: [region, status, category]
     time_column: created_at
     additivity: non_additive
+    empty_value: 0
 
   - name: paid_rate
     label: 支付成功率
+    definition_version: 2
     description: >
-      已支付订单数 / 订单总数。
-      比值指标不能直接对分子分母的结果再做平均。
+      已支付订单数 / 订单总数。分子分母各自去重后在同一分组内重算；
+      不能先算各分组比率再求平均。分母为 0 时返回 null。
     kind: ratio
     source: order_facts
-    expr: "1.0 * count(DISTINCT CASE WHEN status='paid' THEN order_id END) / count(DISTINCT order_id)"
-    dimensions: [region]
+    numerator:
+      agg: count_distinct
+      column: order_id
+      filters:
+        - {column: status, op: eq, value: paid}
+    denominator:
+      agg: count_distinct
+      column: order_id
+    dimensions: [region, category]
     time_column: created_at
     additivity: non_additive
+    empty_value: null
 
   - name: avg_order_cents
     label: 客单价（分）
-    description: 已支付订单的平均金额。分母必须去重。
+    definition_version: 2
+    description: >
+      已支付订单的平均金额。分子先按 order_id 去重再求和，分母为去重后的
+      已支付订单数；分母为 0 时返回 null。
     kind: ratio
     source: order_facts
-    expr: "coalesce(sum(amount_cents) FILTER (WHERE status='paid'), 0) / nullif(count(DISTINCT CASE WHEN status='paid' THEN order_id END), 0)"
-    dimensions: [region]
+    numerator:
+      agg: sum
+      column: amount_cents
+      filters:
+        - {column: status, op: eq, value: paid}
+      dedup:
+        keys: [order_id]
+        policy: max_by
+        column: amount_cents
+        tiebreak: [ingest_seq]
+    denominator:
+      agg: count_distinct
+      column: order_id
+      filters:
+        - {column: status, op: eq, value: paid}
+    dimensions: [region, category]
     time_column: created_at
     additivity: non_additive
+    empty_value: null
 
   - name: suppliers_total
     label: 供应商总数
-    description: 有快照记录的供应商总数（与活跃数不同：不要求 is_active）。
+    definition_version: 2
+    description: >
+      有快照记录的供应商总数，不要求 is_active。与 active_suppliers 的差异
+      正是从未活跃过的供应商。
     kind: distinct
     source: supplier_stats
-    expr: count(DISTINCT supplier_id)
+    measure:
+      agg: count_distinct
+      column: supplier_id
     dimensions: [region, category]
     time_column: stat_time
     additivity: non_additive
+    empty_value: 0
