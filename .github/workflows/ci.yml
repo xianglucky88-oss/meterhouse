@@ -22,5 +22,5 @@ jobs:
         run: |
           python -m meterhouse seed
           python -m meterhouse parity
-      - name: verify (expected to fail until metrics are unified)
-        run: python scripts/verify_metrics.py || true
+      - name: verify (hard gate: semantic layer vs ground truth)
+        run: python scripts/verify_metrics.py

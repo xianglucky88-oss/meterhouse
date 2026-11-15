@@ -1,78 +1,135 @@
-# 指标语义层定义（草稿）
+# 指标语义层定义（v2）
 #
-# 目标：所有接口、报表、导出都从这里取数。
-# 现状：只用了 2 个指标，其余仍在 meterhouse/queries.py 里手写。
+# 所有接口、报表、导出都必须从这里取数，由 meterhouse.compiler 编译为
+# 参数化 SQL，禁止在接口里手写聚合口径。
+#
+# 语义版本规则：
+#   * version 是本文件的 schema 主版本，编译器只接受受支持的主版本，
+#     未知版本直接拒绝加载，而不是按旧语义猜测执行；
+#   * 每个指标带 valid_from：口径变更（改过滤、改去重、改分子分母）时
+#     递增版本号并保留历史定义，而不是静默覆盖数字含义；
+#   * 新增字段只能向后兼容；破坏性变更必须升 version 并提供迁移路径。
+#
+# 本文件的受信任内容：表名、列名、指标名、作者级过滤表达式。
+# 来自请求的任何值都不会以内联字面量进入 SQL，只会作为绑定参数。
 
-version: 1
+version: 2
+
+# 业务时区：stat_time / created_at 都是 UTC，按日/周/月归桶前必须先偏移。
+timezone:
+  business_offset_hours: 8
+
+sources:
+  order_facts:
+    table: order_facts
+    time_column: created_at
+    # 上游存在重复推送：先去重、后过滤、再聚合，顺序固定在编译器里。
+    # distinct 策略对整行去重；重推内容一致，与按 order_id 取 max 等价。
+    dedup:
+      strategy: distinct
+    columns: [order_id, supplier_id, created_at, amount_cents, status, region]
+    dimensions:
+      region: {type: string}
+      # status 可作为过滤列，但不允许作为任意指标的分组维度（见各指标 dimensions）
+      status: {type: string}
+
+  supplier_stats:
+    table: supplier_stats
+    time_column: stat_time
+    dedup:
+      strategy: distinct
+    columns: [supplier_id, stat_time, is_active, region, category]
+    dimensions:
+      region: {type: string}
+      category: {type: string}
+      # is_active 仅作为过滤列注册（不在任何指标的分组白名单里）。
+      is_active: {type: boolean}
 
 metrics:
   - name: active_suppliers
     label: 活跃供应商数
     description: >
-      统计窗口内有活跃快照的供应商数量。
-      口径：按 supplier_id 去重。注意 stat_time 是 UTC，
-      若按日期下钻，必须先转换到业务时区。
+      统计窗口内有活跃快照的供应商数量，按 supplier_id 去重。
+      跨日/跨区域不可加：上卷必须重新做 count(DISTINCT)，不能相加日均值或区域值。
     kind: distinct
     source: supplier_stats
-    expr: count(DISTINCT supplier_id)
+    distinct: supplier_id
     filters:
-      - "is_active"
+      - {column: is_active, op: "=", value: true}
     dimensions: [region, category]
     time_column: stat_time
-    # 去重计数在时间维度上不可加：1 月 + 2 月 != 整个季度
     additivity: non_additive
+    valid_from: 1
 
   - name: gmv_cents
     label: 成交金额（分）
     description: >
-      已支付订单金额合计。必须先按 order_id 去重，因为上游存在重复推送。
-    kind: simple
+      已支付订单金额合计。去重 CTE 先消除重复推送，再按 status='paid' 过滤。
+      金额指标可加，允许沿维度/时间直接 sum 上卷。
+    kind: measure
     source: order_facts
-    expr: "coalesce(sum(amount_cents), 0)"
+    agg: {func: sum, expr: amount_cents}
     filters:
-      - "status = 'paid'"
+      - {column: status, op: "=", value: paid}
     dimensions: [region]
     time_column: created_at
     additivity: additive
+    valid_from: 1
 
   - name: orders_total
     label: 订单数
-    description: 去重后的订单数。注意与 gmv_cents 的去重口径必须一致。
+    description: 去重后的订单数，count(DISTINCT order_id)，与 gmv_cents 共用同一去重 CTE。
     kind: distinct
     source: order_facts
-    expr: count(DISTINCT order_id)
+    distinct: order_id
     dimensions: [region, status]
     time_column: created_at
     additivity: non_additive
+    valid_from: 1
 
   - name: paid_rate
     label: 支付成功率
     description: >
-      已支付订单数 / 订单总数。
-      比值指标不能直接对分子分母的结果再做平均。
+      已支付订单数 / 订单总数，分子分母分别聚合后相除。
+      比率指标不可加、不可平均；任何上卷（跨区域、跨日、同环比）都必须
+      在目标窗口内重新计算分子分母，禁止对比率结果再做 avg/sum。
     kind: ratio
     source: order_facts
-    expr: "1.0 * count(DISTINCT CASE WHEN status='paid' THEN order_id END) / count(DISTINCT order_id)"
+    numerator:
+      distinct: order_id
+      filters: [{column: status, op: "=", value: paid}]
+    denominator:
+      distinct: order_id
     dimensions: [region]
     time_column: created_at
     additivity: non_additive
+    valid_from: 1
 
   - name: avg_order_cents
     label: 客单价（分）
-    description: 已支付订单的平均金额。分母必须去重。
+    description: >
+      已支付订单金额 / 已支付去重订单数。
+      分母必须去重；空窗口按 0 处理并标记 zero_denominator。
     kind: ratio
     source: order_facts
-    expr: "coalesce(sum(amount_cents) FILTER (WHERE status='paid'), 0) / nullif(count(DISTINCT CASE WHEN status='paid' THEN order_id END), 0)"
+    numerator:
+      agg: {func: sum, expr: amount_cents}
+      filters: [{column: status, op: "=", value: paid}]
+    denominator:
+      distinct: order_id
+      filters: [{column: status, op: "=", value: paid}]
     dimensions: [region]
     time_column: created_at
     additivity: non_additive
+    valid_from: 1
 
   - name: suppliers_total
     label: 供应商总数
-    description: 有快照记录的供应商总数（与活跃数不同：不要求 is_active）。
+    description: 有快照记录的供应商总数（不要求 is_active），按 supplier_id 去重，跨期不可加。
     kind: distinct
     source: supplier_stats
-    expr: count(DISTINCT supplier_id)
+    distinct: supplier_id
     dimensions: [region, category]
     time_column: stat_time
     additivity: non_additive
+    valid_from: 1

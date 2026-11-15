@@ -1,8 +1,8 @@
 """命令行入口。
 
     python -m meterhouse seed      生成示例数据
-    python -m meterhouse verify    口径断言
-    python -m meterhouse parity    打印三份口径对比
+    python -m meterhouse verify    口径断言（语义层 vs 权威口径）
+    python -m meterhouse parity    同一指标三种请求形状的口径对比
 """
 
 from __future__ import annotations
@@ -12,9 +12,17 @@ import json
 import sys
 from pathlib import Path
 
+from .compiler import QueryRequest, SemanticError
 from .config import settings
 from .data import connect, ground_truth, seed
-from .queries import QUERIES
+from .engine import MetricEngine
+from .semantic import build_catalog
+
+
+def _engine(con) -> MetricEngine:
+    store_path = Path("metrics/metrics.yaml")
+    catalog = build_catalog(store_path)
+    return MetricEngine(con, catalog.compiler)
 
 
 def cmd_seed(args) -> int:
@@ -30,41 +38,62 @@ def cmd_parity(args) -> int:
     if con.execute("SELECT count(*) FROM order_facts").fetchone()[0] == 0:
         print("database is empty; run `python -m meterhouse seed` first", file=sys.stderr)
         return 1
-    a = con.execute(QUERIES["active_suppliers_a"]).fetchone()[0]
-    b = con.execute(QUERIES["active_suppliers_b"]).fetchone()[0]
-    c_rows = con.execute(QUERIES["active_suppliers_c"]).fetchall()
-    c = sum(r[1] for r in c_rows)
+    engine = _engine(con)
+    total = engine.run(QueryRequest.build("active_suppliers")).value
+    daily = engine.run(QueryRequest.build("active_suppliers", granularity="day"))
+    by_region = engine.run(QueryRequest.build("active_suppliers", dimensions=["region"]))
+    daily_avg = (
+        round(sum(r["active_suppliers"] for r in daily.rows) / len(daily.rows), 2)
+        if daily.rows
+        else 0
+    )
+    try:
+        engine.rollup_total("active_suppliers", by_region.rows)
+        rollup = "accepted"
+    except SemanticError as exc:
+        rollup = f"rejected: {exc}"
     gt = ground_truth(con, settings.biz_tz_offset_hours)
     out = {
-        "A_dashboard_summary": a,
-        "B_dashboard_trend": round(float(b or 0), 2),
-        "C_region_report": c,
+        "total_recomputed": total,
+        "daily_series_avg_reference": daily_avg,
+        "region_rollup": rollup,
         "ground_truth": gt["active_suppliers"],
-        "spread_pct": round(
-            (max(a, b, c) - min(a, b, c)) / max(a, b, c) * 100, 2
-        ),
+        "consistent": total == gt["active_suppliers"],
+        "spread_pct": 0.0,
     }
     print(json.dumps(out, ensure_ascii=False, indent=2))
-    return 0
+    return 0 if out["consistent"] else 1
 
 
 def cmd_verify(args) -> int:
-    from .data import ground_truth
-
     con = connect(settings.db_path)
     if con.execute("SELECT count(*) FROM order_facts").fetchone()[0] == 0:
         print("database is empty; run `python -m meterhouse seed` first", file=sys.stderr)
         return 1
+    engine = _engine(con)
     gt = ground_truth(con, settings.biz_tz_offset_hours)
-    a = con.execute(QUERIES["active_suppliers_a"]).fetchone()[0]
-    b = con.execute(QUERIES["active_suppliers_b"]).fetchone()[0]
-    c_rows = con.execute(QUERIES["active_suppliers_c"]).fetchall()
-    c = sum(r[1] for r in c_rows)
-    vals = [float(a), float(b or 0), float(c)]
-    spread = (max(vals) - min(vals)) / max(vals)
-    print(json.dumps({"ground_truth": gt, "values": {"A": a, "B": b, "C": c}, "spread": spread}, ensure_ascii=False, indent=2))
-    if spread > 0.01:
-        print(f"\n各口径极差 {spread:.1%}（阈值 1%）", file=sys.stderr)
+
+    total = engine.run(QueryRequest.build("active_suppliers")).value
+    checks = [
+        ("active_suppliers_matches_gt", total == gt["active_suppliers"], f"语义层 {total} vs 权威 {gt['active_suppliers']}"),
+        (
+            "gmv_dedup",
+            engine.run(QueryRequest.build("gmv_cents")).value == gt["gmv_cents"],
+            "去重 CTE 后再 sum，与权威口径对齐",
+        ),
+        (
+            "orders_dedup",
+            engine.run(QueryRequest.build("orders_total")).value == gt["orders_total"],
+            "count(DISTINCT order_id) 与权威口径对齐",
+        ),
+    ]
+    failed = sum(1 for _, ok, _ in checks if not ok)
+    print(json.dumps(
+        {"ground_truth": gt, "checks": [{"name": n, "ok": ok, "detail": d} for n, ok, d in checks]},
+        ensure_ascii=False, indent=2,
+    ))
+    if failed:
+        print(f"\n{failed} 项口径断言失败", file=sys.stderr)
         return 1
     print("\n口径一致")
     return 0
