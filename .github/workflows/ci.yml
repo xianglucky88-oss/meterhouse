@@ -18,9 +18,45 @@ jobs:
           pip install -r requirements.txt
       - name: pytest
         run: python -m pytest -q
-      - name: seed + parity
+      - name: seed + verify
         run: |
           python -m meterhouse seed
-          python -m meterhouse parity
-      - name: verify (expected to fail until metrics are unified)
-        run: python scripts/verify_metrics.py || true
+          python -m meterhouse verify
+
+  clickhouse:
+    # 迁移目标引擎的端到端校验：启动真实 ClickHouse，灌明细，逐行比对口径。
+    runs-on: ubuntu-latest
+    services:
+      clickhouse:
+        image: clickhouse/clickhouse-server:24.8
+        ports:
+          - 8123:8123
+        options: >-
+          --health-cmd "wget -qO- http://localhost:8123/ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      CLICKHOUSE_HOST: 127.0.0.1
+      CLICKHOUSE_PORT: "8123"
+      CLICKHOUSE_DATABASE: meterhouse
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: ""
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: |
+          python -m pip install -U pip
+          pip install -r requirements.txt
+      - name: seed
+        run: python -m meterhouse seed
+      - name: pytest (with clickhouse)
+        run: python -m pytest -q
+      - name: sync + row parity
+        run: |
+          python -m meterhouse sync
+          python -m meterhouse check-parity
+      - name: verify (readiness)
+        run: python scripts/verify_metrics.py

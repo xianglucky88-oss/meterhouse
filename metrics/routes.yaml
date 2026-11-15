@@ -1,0 +1,55 @@
+# 逐接口切流配置
+#
+# 角色：
+#   control  当前可信引擎（默认 DuckDB），迁移期始终可回退
+#   target   迁移目标引擎（默认 ClickHouse）
+#
+# mode（YAML 1.1 会把裸 off 解析成布尔，务必加引号）：
+#   'off'     只走 control（默认，迁移起点）
+#   'shadow'  仍由 control 服务；同时把同一份查询发到 target 并比对结果，
+#             记录差异但**不改变响应数字**。适合先观察口径是否一致。
+#   'primary' 由 target 服务；target 故障时按 fallback 回退 control，
+#             响应里标记 degraded / fallback_from。
+#
+# 建议顺序：'off' → 'shadow'（观察差异）→ 'primary'（保留 fallback）→
+# 'primary'（关闭 fallback）。
+# 每次变更都会追加到 metrics/routes.audit.jsonl。
+#
+# 注意：该文件由 CutoverStore 管理。通过 `python -m meterhouse cutover`
+# 或 POST /api/v1/routes/{interface} 修改后，本文件会被重写（注释不保留）。
+
+interfaces:
+  - interface: dashboard.summary
+    mode: 'off'
+    target: clickhouse
+    control: duckdb
+    fallback: true
+    tolerance_pct: 0.0
+
+  - interface: dashboard.trend
+    mode: 'off'
+    target: clickhouse
+    control: duckdb
+    fallback: true
+    tolerance_pct: 0.0
+
+  - interface: reports.region
+    mode: 'off'
+    target: clickhouse
+    control: duckdb
+    fallback: true
+    tolerance_pct: 0.0
+
+  - interface: metrics.query
+    mode: 'off'
+    target: clickhouse
+    control: duckdb
+    fallback: true
+    tolerance_pct: 0.0
+
+  - interface: exports.daily
+    mode: 'off'
+    target: clickhouse
+    control: duckdb
+    fallback: true
+    tolerance_pct: 0.0

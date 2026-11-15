@@ -1,97 +1,38 @@
-"""各接口的手写查询。
+"""已废弃的手写 SQL。
 
-接口按页面组织，每个接口自带一段 SQL。
+历史上三个接口各写一段 SQL，同一个指标有三份互相矛盾的实现。
+迁移后所有取数都走 `metrics/metrics.yaml` 语义层，本模块不再承载口径。
+
+保留这个文件只有一个目的：让仍在 `from meterhouse.queries import QUERIES`
+的外部脚本不至于 ImportError。它现在的每条 SQL 都由语义层编译而来，
+因此**不会再产生新口径**——如果它和语义层不一致，说明编译器坏了，
+而不是"第二个真相"。
+
+新代码请直接用 `MetricStore.compile_query()`。
 """
 
 from __future__ import annotations
 
-# ---------------------------------------------------------------------------
-# 口径 A：/api/v1/dashboard/summary
-#   按 supplier_id 去重，跨整个时间范围
-# ---------------------------------------------------------------------------
-ACTIVE_SUPPLIERS_A = """
-SELECT count(DISTINCT supplier_id) AS active_suppliers
-FROM supplier_stats
-WHERE is_active
-"""
+from pathlib import Path
 
-# ---------------------------------------------------------------------------
-# 口径 B：/api/v1/dashboard/trend
-#   按 (supplier_id, date) 去重后求平均，但 date 用的是 UTC
-# ---------------------------------------------------------------------------
-ACTIVE_SUPPLIERS_B = """
-SELECT avg(cnt) AS active_suppliers
-FROM (
-    SELECT CAST(stat_time AS DATE) AS d, count(DISTINCT supplier_id) AS cnt
-    FROM supplier_stats
-    WHERE is_active
-    GROUP BY 1
-) t
-"""
+from .semantic import MetricStore, TimeWindow
 
-# ---------------------------------------------------------------------------
-# 口径 C：/api/v1/reports/region
-#   按 (supplier_id, date, region) 去重 —— 供应商换过区域会被算两次
-#   而且忘了 is_active 过滤
-# ---------------------------------------------------------------------------
-ACTIVE_SUPPLIERS_C = """
-SELECT region, count(DISTINCT supplier_id || '|' || CAST(stat_time AS DATE)) AS active_suppliers
-FROM supplier_stats
-GROUP BY region
-"""
+_STORE = MetricStore.load(Path("metrics/metrics.yaml"))
 
-# ---------------------------------------------------------------------------
-# 其他指标
-# ---------------------------------------------------------------------------
 
-GMV_CENTS = """
-SELECT coalesce(sum(amount_cents), 0) AS gmv_cents
-FROM order_facts
-WHERE status = 'paid'
-"""
+def _sql(name: str, **kwargs) -> str:
+    return _STORE.compile_query(name, engine="duckdb", **kwargs).sql
 
-# 注意：这里没有按 order_id 去重，重复推送的订单会被重复计入
-ORDERS_TOTAL = """
-SELECT count(*) AS orders_total FROM order_facts
-"""
 
-ORDERS_BY_DATE = """
-SELECT CAST(created_at AS DATE) AS d, count(*) AS orders
-FROM order_facts
-WHERE status = 'paid'
-GROUP BY 1
-ORDER BY 1
-"""
-
-SUPPLIER_COUNT_BY_REGION = """
-SELECT region, count(DISTINCT supplier_id) AS suppliers
-FROM supplier_stats
-GROUP BY region
-ORDER BY region
-"""
-
-CONVERSION_RATE = """
-SELECT
-    CASE WHEN count(*) = 0 THEN 0
-         ELSE 1.0 * count(*) FILTER (WHERE status = 'paid') / count(*)
-    END AS paid_rate
-FROM order_facts
-"""
-
-AVG_ORDER_CENTS = """
-SELECT coalesce(avg(amount_cents), 0) AS avg_order_cents
-FROM order_facts
-WHERE status = 'paid'
-"""
-
+# 旧名字 → 语义层指标（均无维度、无时间窗口）
 QUERIES = {
-    "active_suppliers_a": ACTIVE_SUPPLIERS_A,
-    "active_suppliers_b": ACTIVE_SUPPLIERS_B,
-    "active_suppliers_c": ACTIVE_SUPPLIERS_C,
-    "gmv_cents": GMV_CENTS,
-    "orders_total": ORDERS_TOTAL,
-    "orders_by_date": ORDERS_BY_DATE,
-    "supplier_count_by_region": SUPPLIER_COUNT_BY_REGION,
-    "conversion_rate": CONVERSION_RATE,
-    "avg_order_cents": AVG_ORDER_CENTS,
+    "active_suppliers_a": _sql("active_suppliers"),
+    "active_suppliers_b": _sql("active_suppliers_daily_avg"),
+    "active_suppliers_c": _sql("active_suppliers", dimensions=["region"]),
+    "gmv_cents": _sql("gmv_cents"),
+    "orders_total": _sql("orders_total"),
+    "orders_by_date": _sql("orders_total", time_window=TimeWindow(granularity="day")),
+    "supplier_count_by_region": _sql("suppliers_total", dimensions=["region"]),
+    "conversion_rate": _sql("paid_rate"),
+    "avg_order_cents": _sql("avg_order_cents"),
 }

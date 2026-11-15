@@ -3,3 +3,7 @@ fastapi==0.115.6
 uvicorn[standard]==0.34.0
 PyYAML==6.0.2
 pytest==8.3.4
+# 测试用（TestClient 依赖）
+httpx==0.28.1
+# ClickHouse 客户端。未配置 CLICKHOUSE_HOST 时可缺省，但装了才能跑端到端。
+clickhouse-connect==0.8.18

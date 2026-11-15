@@ -98,6 +98,9 @@ tmp/
 logs/
 *.log
 *.pid
+# 切流审计日志由运行时生成，不随配置一起提交
+metrics/routes.audit.jsonl
+metrics/routes.yaml.tmp
 
 # ============================================================
 # 编辑器与系统

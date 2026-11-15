@@ -1,78 +1,169 @@
-# 指标语义层定义（草稿）
+# 指标语义层定义
 #
-# 目标：所有接口、报表、导出都从这里取数。
-# 现状：只用了 2 个指标，其余仍在 meterhouse/queries.py 里手写。
+# 所有接口、报表、导出都从这里取数；不再有任何手写 SQL 绕过这里。
+#
+# 每个指标用**结构化原语**声明（聚合 + 列 + 过滤器 + 去重键），由编译器
+# 翻译成 DuckDB / ClickHouse 方言。这样切流前后口径由构造保证一致。
+#
+# sources:
+#   table         事实表
+#   time_column   UTC 存储时间列
+#   dedup_by      业务主键（查询期按此去重，取 row_version 最大的一行）
+#   version_column 版本列（保留原始事实，可追溯到 ingest_batches）
+#
+# additivity:
+#   additive / semi_additive / non_additive —— 只影响上卷方式，不影响编译；
+#   non_additive 指标在目标粒度**重新去重**，绝不相加更细粒度的结果。
 
-version: 1
+version: 2
+
+defaults:
+  biz_tz: Asia/Shanghai
+  # 指标定义版本：口径变更时必须同步修改，接口响应里会带回这个版本号。
+  definition_version: "2.0"
+
+sources:
+  supplier_stats:
+    table: supplier_stats
+    time_column: stat_time
+    biz_day_column: biz_day
+    # 快照同一时刻可能被重复推送；业务主键是供应商 + 快照时刻。
+    dedup_by: [supplier_id, stat_time]
+    version_column: row_version
+    biz_tz: Asia/Shanghai
+  order_facts:
+    table: order_facts
+    time_column: created_at
+    biz_day_column: biz_day
+    # 上游重复推送：按 order_id 去重，取最新版本。
+    dedup_by: [order_id]
+    version_column: row_version
+    biz_tz: Asia/Shanghai
 
 metrics:
   - name: active_suppliers
     label: 活跃供应商数
     description: >
-      统计窗口内有活跃快照的供应商数量。
-      口径：按 supplier_id 去重。注意 stat_time 是 UTC，
-      若按日期下钻，必须先转换到业务时区。
+      统计窗口内有活跃快照的供应商数量。口径：按 supplier_id 去重，
+      窗口内任意时刻活跃即计入，**不按天相加**。
+      时区：按业务时区（Asia/Shanghai）归属窗口。
     kind: distinct
     source: supplier_stats
-    expr: count(DISTINCT supplier_id)
-    filters:
-      - "is_active"
+    agg:
+      agg: count_distinct
+      column: supplier_id
+      filter: "is_active"
     dimensions: [region, category]
     time_column: stat_time
-    # 去重计数在时间维度上不可加：1 月 + 2 月 != 整个季度
     additivity: non_additive
+    value_type: int
+    definition_version: "2.0"
 
-  - name: gmv_cents
-    label: 成交金额（分）
+  - name: active_suppliers_daily_avg
+    label: 日均活跃供应商数
     description: >
-      已支付订单金额合计。必须先按 order_id 去重，因为上游存在重复推送。
-    kind: simple
-    source: order_facts
-    expr: "coalesce(sum(amount_cents), 0)"
-    filters:
-      - "status = 'paid'"
-    dimensions: [region]
-    time_column: created_at
-    additivity: additive
-
-  - name: orders_total
-    label: 订单数
-    description: 去重后的订单数。注意与 gmv_cents 的去重口径必须一致。
-    kind: distinct
-    source: order_facts
-    expr: count(DISTINCT order_id)
-    dimensions: [region, status]
-    time_column: created_at
+      逐业务日去重供应商数，再对天数求平均。
+      与 active_suppliers 是两个指标，不能互相替代：前者是窗口内去重，
+      后者是逐日去重后的平均值。
+    kind: avg_of_distinct
+    source: supplier_stats
+    agg:
+      agg: count_distinct
+      column: supplier_id
+      filter: "is_active"
+    # 内层去重桶：固定按业务日，外层对其求平均。
+    bucket_granularity: day
+    dimensions: []
+    time_column: stat_time
     additivity: non_additive
-
-  - name: paid_rate
-    label: 支付成功率
-    description: >
-      已支付订单数 / 订单总数。
-      比值指标不能直接对分子分母的结果再做平均。
-    kind: ratio
-    source: order_facts
-    expr: "1.0 * count(DISTINCT CASE WHEN status='paid' THEN order_id END) / count(DISTINCT order_id)"
-    dimensions: [region]
-    time_column: created_at
-    additivity: non_additive
-
-  - name: avg_order_cents
-    label: 客单价（分）
-    description: 已支付订单的平均金额。分母必须去重。
-    kind: ratio
-    source: order_facts
-    expr: "coalesce(sum(amount_cents) FILTER (WHERE status='paid'), 0) / nullif(count(DISTINCT CASE WHEN status='paid' THEN order_id END), 0)"
-    dimensions: [region]
-    time_column: created_at
-    additivity: non_additive
+    value_type: float
+    empty_value: null
+    definition_version: "2.0"
 
   - name: suppliers_total
     label: 供应商总数
     description: 有快照记录的供应商总数（与活跃数不同：不要求 is_active）。
     kind: distinct
     source: supplier_stats
-    expr: count(DISTINCT supplier_id)
+    agg:
+      agg: count_distinct
+      column: supplier_id
     dimensions: [region, category]
     time_column: stat_time
     additivity: non_additive
+    value_type: int
+    definition_version: "2.0"
+
+  - name: gmv_cents
+    label: 成交金额（分）
+    description: >
+      已支付订单金额合计（单位：分）。先按 order_id 去重（上游存在重复推送），
+      再对 status='paid' 的行求和。
+    kind: simple
+    source: order_facts
+    agg:
+      agg: sum
+      column: amount_cents
+      filter: "status = 'paid'"
+    dimensions: [region, status, supplier_id]
+    time_column: created_at
+    additivity: additive
+    value_type: int
+    definition_version: "2.0"
+
+  - name: orders_total
+    label: 订单数
+    description: 去重后的订单数。与 gmv_cents 使用同一个 order_id 去重口径。
+    kind: distinct
+    source: order_facts
+    agg:
+      agg: count_distinct
+      column: order_id
+    dimensions: [region, status]
+    time_column: created_at
+    additivity: non_additive
+    value_type: int
+    definition_version: "2.0"
+
+  - name: paid_rate
+    label: 支付成功率
+    description: >
+      已支付订单数 / 订单总数（两者都按 order_id 去重）。
+      比值指标不能对分子分母的结果再做平均。
+    kind: ratio
+    source: order_facts
+    numerator:
+      agg: count_distinct
+      column: order_id
+      filter: "status = 'paid'"
+    denominator:
+      agg: count_distinct
+      column: order_id
+    dimensions: [region]
+    time_column: created_at
+    additivity: non_additive
+    value_type: float
+    empty_value: null
+    definition_version: "2.0"
+
+  - name: avg_order_cents
+    label: 客单价（分）
+    description: >
+      已支付订单的平均金额。分子先按 order_id 去重后求和，
+      分母是去重后的已支付订单数。
+    kind: ratio
+    source: order_facts
+    numerator:
+      agg: sum
+      column: amount_cents
+      filter: "status = 'paid'"
+    denominator:
+      agg: count_distinct
+      column: order_id
+      filter: "status = 'paid'"
+    dimensions: [region]
+    time_column: created_at
+    additivity: non_additive
+    value_type: float
+    empty_value: null
+    definition_version: "2.0"
