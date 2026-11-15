@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import time
+from contextlib import asynccontextmanager
 from typing import Any
 
 import duckdb
@@ -15,12 +16,23 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import HTMLResponse
 
 from . import __version__
+from .audit.api import router as audit_router
+from .audit.api import shutdown_worker as shutdown_audit_worker
 from .config import settings
 from .data import connect, ground_truth
 from .queries import QUERIES
 from .semantic import MetricStore
 
-app = FastAPI(title="meterhouse", version=__version__)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    yield
+    # 审计导出工作器是惰性启动的后台线程，进程退出时优雅收敛
+    shutdown_audit_worker()
+
+
+app = FastAPI(title="meterhouse", version=__version__, lifespan=lifespan)
+app.include_router(audit_router)
 _con: duckdb.DuckDBPyConnection | None = None
 _store: MetricStore | None = None
 

@@ -49,9 +49,10 @@ REGIONS = ["华东", "华南", "华北", "西南"]
 CATEGORIES = ["电子元器件", "包装材料", "物流服务", "办公用品"]
 
 
-def connect(path: str) -> duckdb.DuckDBPyConnection:
-    con = duckdb.connect(str(path))
-    con.execute(DDL)
+def connect(path: str, read_only: bool = False) -> duckdb.DuckDBPyConnection:
+    con = duckdb.connect(str(path), read_only=read_only)
+    if not read_only:
+        con.execute(DDL)
     return con
 
 
